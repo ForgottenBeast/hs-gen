@@ -21,28 +21,8 @@ docs/
 ├── book.toml
 └── src/
     └── SUMMARY.md
-```
-
-## Cargo.toml dependencies
-
-```toml
-[dependencies]
-argon2        = "0.5"
-hkdf          = "0.12"
-sha2          = "0.10"
-sha3          = "0.10"
-ed25519-dalek = { version = "2", features = ["hazmat", "zeroize"] }
-x25519-dalek  = { version = "2", features = ["static_secrets", "zeroize"] }
-clap          = { version = "4", features = ["derive"] }
-serde         = { version = "1", features = ["derive"] }
-serde_json    = "1"
-zeroize       = { version = "1", features = ["derive"] }
-data-encoding = "2"
-ctrlc         = { version = "3", features = ["termination"] }
-
-[dev-dependencies]
-quickcheck       = "1"
-quickcheck_macros = "1"
+tests/
+└── integration.rs  # Binary-level integration tests (spawns hs-gen)
 ```
 
 ## CLI flags
@@ -80,22 +60,70 @@ Epoch = unix_timestamp_secs / validity_secs
 - Certificate: [0x05, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00]
 - Full .dat = 679 bytes (391 public + 256 crypto_priv + 32 signing_priv)
 - b32 = base32(SHA-256(391 bytes)) + ".b32.i2p"
+- crypto_type=0 (ElGamal placeholder); X25519 private key stored in crypto_priv[0..32]
 
 ## Daemon JSON protocol
 
 Newline-delimited JSON, max 4096 bytes per line.
 Elixir Port: `Port.open({:spawn_executable, ...}, [:binary, {:line, 4096}])`
 
-Commands: set_validity, status, shutdown
-Events: started, rotated, validity_changed, status, error, shutdown
+Password is read as the **first line** of stdin. Subsequent lines are commands.
+Closing stdin (EOF) triggers graceful shutdown identical to `{"cmd":"shutdown"}`.
+
+### Commands (stdin → process)
+
+```json
+{"cmd": "set_validity", "seconds": 300}
+{"cmd": "status"}
+{"cmd": "shutdown"}
+```
+
+`set_validity` takes effect at the **next epoch boundary**, not immediately.
+
+### Events (process → stdout)
+
+```json
+{"event": "started",          "epoch": 123, "validity": 3600}
+{"event": "rotated",          "epoch": 124, "validity": 3600, "tor_onion": "abc.onion", "i2p_b32": "xyz.b32.i2p", "path": "/out/124"}
+{"event": "validity_changed", "new_validity": 300, "effective_epoch": 125}
+{"event": "status",           "epoch": 124, "validity": 3600, "next_rotation_in": 1800}
+{"event": "error",            "msg": "..."}
+{"event": "shutdown"}
+```
+
+`rotated.path` is the epoch subdirectory (e.g. `/out/124`) when `--overwrite` is false,
+or the base output-dir when `--overwrite` is true. `tor_onion`/`i2p_b32` are `null` when
+the respective network was not requested.
 
 ## Testing conventions
 
 - Property tests: `quickcheck` in `mod props` blocks
 - Unit tests: `mod tests` blocks
-- Integration tests: `tests/` directory
+- Integration tests: `tests/` directory (spawns the compiled binary)
 
 ## Build
 
-- `nix build` — aarch64-unknown-linux-musl static binary
-- `cargo test` — all tests
+```bash
+# Enter dev shell (provides stable Rust + TLA+ tools)
+nix develop
+
+# Run all tests (native x86_64)
+cargo test --all
+
+# Cross-compile aarch64-unknown-linux-musl static binary via Nix
+nix build
+
+# If running cargo outside nix develop, the musl linker must be on PATH:
+# PATH="/nix/store/<gcc-wrapper>/bin:$PATH" cargo build
+# Find the correct store path with: find /nix/store -maxdepth 1 -name '*gcc-wrapper*' | head -1
+```
+
+## Workflow
+
+All changes must be made in a worktree under `.worktrees/`:
+
+```bash
+git worktree add .worktrees/<branch> -b <branch>
+```
+
+Never commit directly on `master` during active development.
