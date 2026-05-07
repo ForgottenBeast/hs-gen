@@ -72,7 +72,8 @@ pub fn derive_epoch_seed(
 
     let hk = Hkdf::<Sha512>::new(None, master.as_bytes());
     let mut okm = Zeroizing::new(vec![0u8; len]);
-    hk.expand(&info, &mut okm).expect("HKDF expand failed: output too long");
+    hk.expand(&info, &mut okm)
+        .expect("HKDF expand failed: output too long");
     okm
 }
 
@@ -149,7 +150,9 @@ mod props {
 
     #[quickcheck]
     fn kdf_is_deterministic(password: Vec<u8>, epoch: u64) -> bool {
-        let Ok(master) = derive_master_key(&password) else { return true };
+        let Ok(master) = derive_master_key(&password) else {
+            return true;
+        };
         let s1 = derive_epoch_seed(&master, epoch, NetworkTag::Tor);
         let s2 = derive_epoch_seed(&master, epoch, NetworkTag::Tor);
         *s1 == *s2

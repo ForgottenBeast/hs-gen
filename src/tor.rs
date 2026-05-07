@@ -110,7 +110,11 @@ mod tests {
     #[test]
     fn hostname_ends_with_onion() {
         let keys = generate_tor_keys(&test_seed());
-        assert!(keys.hostname.ends_with(".onion"), "hostname: {}", keys.hostname);
+        assert!(
+            keys.hostname.ends_with(".onion"),
+            "hostname: {}",
+            keys.hostname
+        );
     }
 
     #[test]

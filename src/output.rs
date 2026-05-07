@@ -34,12 +34,15 @@ pub fn write_tor(keys: &TorKeys, epoch: u64, target: &OutputTarget) -> io::Resul
         OutputTarget::Directory { path, overwrite } => {
             let tor_dir = service_dir(path, epoch, "tor", *overwrite);
             fs::create_dir_all(&tor_dir)?;
-            atomic_write(&tor_dir.join("hs_ed25519_secret_key"), &keys.secret_key_file)?;
-            atomic_write(&tor_dir.join("hs_ed25519_public_key"), &keys.public_key_file)?;
             atomic_write(
-                &tor_dir.join("hostname"),
-                keys.hostname.as_bytes(),
-            )
+                &tor_dir.join("hs_ed25519_secret_key"),
+                &keys.secret_key_file,
+            )?;
+            atomic_write(
+                &tor_dir.join("hs_ed25519_public_key"),
+                &keys.public_key_file,
+            )?;
+            atomic_write(&tor_dir.join("hostname"), keys.hostname.as_bytes())
         }
     }
 }
@@ -105,9 +108,9 @@ fn atomic_write(path: &Path, data: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i2p::generate_i2p_keys;
     use crate::kdf::{derive_epoch_seed, derive_master_key, NetworkTag};
     use crate::tor::generate_tor_keys;
-    use crate::i2p::generate_i2p_keys;
     use tempfile::TempDir;
 
     fn make_tor_keys() -> TorKeys {

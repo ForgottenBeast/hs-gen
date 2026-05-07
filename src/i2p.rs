@@ -1,8 +1,8 @@
 use data_encoding::BASE32_NOPAD;
-use zeroize::{Zeroize, ZeroizeOnDrop};
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha256};
 use x25519_dalek::StaticSecret as X25519SecretKey;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 /// I2P type-7 EdDSA-SHA512-Ed25519 destination keys, i2pd-compatible.
@@ -44,7 +44,7 @@ pub fn generate_i2p_keys(seed: &[u8; 64]) -> I2pKeys {
     public_dest[384..391].copy_from_slice(&CERTIFICATE);
 
     // --- Build b32 address ---
-    let hash = Sha256::digest(&public_dest);
+    let hash = Sha256::digest(public_dest);
     let b32 = BASE32_NOPAD.encode(&hash).to_lowercase();
     let b32_address = format!("{b32}.b32.i2p");
 
@@ -91,7 +91,11 @@ mod tests {
     #[test]
     fn b32_address_ends_with_b32_i2p() {
         let keys = generate_i2p_keys(&test_seed());
-        assert!(keys.b32_address.ends_with(".b32.i2p"), "b32: {}", keys.b32_address);
+        assert!(
+            keys.b32_address.ends_with(".b32.i2p"),
+            "b32: {}",
+            keys.b32_address
+        );
     }
 
     #[test]

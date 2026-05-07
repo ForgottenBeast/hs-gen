@@ -21,11 +21,29 @@ enum Command {
 #[derive(Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 enum Event {
-    Started { epoch: u64, validity: u64 },
-    Rotated { epoch: u64, validity: u64, tor_onion: Option<String>, i2p_b32: Option<String>, path: Option<String> },
-    ValidityChanged { new_validity: u64, effective_epoch: u64 },
-    Status { epoch: u64, validity: u64, next_rotation_in: u64 },
-    Error { msg: String },
+    Started {
+        epoch: u64,
+        validity: u64,
+    },
+    Rotated {
+        epoch: u64,
+        validity: u64,
+        tor_onion: Option<String>,
+        i2p_b32: Option<String>,
+        path: Option<String>,
+    },
+    ValidityChanged {
+        new_validity: u64,
+        effective_epoch: u64,
+    },
+    Status {
+        epoch: u64,
+        validity: u64,
+        next_rotation_in: u64,
+    },
+    Error {
+        msg: String,
+    },
     Shutdown,
 }
 
@@ -49,31 +67,44 @@ fn derive_and_write(
     epoch: u64,
     gen_tor: bool,
     gen_i2p: bool,
-    output_dir: &std::path::PathBuf,
+    output_dir: &std::path::Path,
     overwrite: bool,
 ) -> (Option<String>, Option<String>) {
     let mut tor_onion: Option<String> = None;
     let mut i2p_b32: Option<String> = None;
 
-    let target = OutputTarget::Directory { path: output_dir.clone(), overwrite };
+    let target = OutputTarget::Directory {
+        path: output_dir.to_path_buf(),
+        overwrite,
+    };
 
     if gen_tor {
         let seed = derive_epoch_seed(master, epoch, NetworkTag::Tor);
-        let seed_arr: &[u8; 32] = seed.as_slice().try_into().expect("tor seed must be 32 bytes");
+        let seed_arr: &[u8; 32] = seed
+            .as_slice()
+            .try_into()
+            .expect("tor seed must be 32 bytes");
         let keys = generate_tor_keys(seed_arr);
         tor_onion = Some(keys.hostname.clone());
         if let Err(e) = write_tor(&keys, epoch, &target) {
-            emit(&Event::Error { msg: format!("tor write failed: {e}") });
+            emit(&Event::Error {
+                msg: format!("tor write failed: {e}"),
+            });
         }
     }
 
     if gen_i2p {
         let seed = derive_epoch_seed(master, epoch, NetworkTag::I2p);
-        let seed_arr: &[u8; 64] = seed.as_slice().try_into().expect("i2p seed must be 64 bytes");
+        let seed_arr: &[u8; 64] = seed
+            .as_slice()
+            .try_into()
+            .expect("i2p seed must be 64 bytes");
         let keys = generate_i2p_keys(seed_arr);
         i2p_b32 = Some(keys.b32_address.clone());
         if let Err(e) = write_i2p(&keys, epoch, &target) {
-            emit(&Event::Error { msg: format!("i2p write failed: {e}") });
+            emit(&Event::Error {
+                msg: format!("i2p write failed: {e}"),
+            });
         }
     }
 
@@ -105,7 +136,9 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
                             return;
                         }
                     }
-                    Err(_) => emit(&Event::Error { msg: format!("invalid command JSON: {l}") }),
+                    Err(_) => emit(&Event::Error {
+                        msg: format!("invalid command JSON: {l}"),
+                    }),
                 },
                 _ => break,
             }
@@ -128,12 +161,27 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
 
     // Initial rotation
     let mut current_epoch = unix_now() / validity;
-    let (tor_onion, i2p_b32) =
-        derive_and_write(&master, current_epoch, args.gen_tor, args.gen_i2p, &args.output_dir, args.overwrite);
+    let (tor_onion, i2p_b32) = derive_and_write(
+        &master,
+        current_epoch,
+        args.gen_tor,
+        args.gen_i2p,
+        &args.output_dir,
+        args.overwrite,
+    );
 
-    emit(&Event::Started { epoch: current_epoch, validity });
+    emit(&Event::Started {
+        epoch: current_epoch,
+        validity,
+    });
     let path = epoch_path(&args.output_dir, current_epoch, args.overwrite);
-    emit(&Event::Rotated { epoch: current_epoch, validity, tor_onion, i2p_b32, path });
+    emit(&Event::Rotated {
+        epoch: current_epoch,
+        validity,
+        tor_onion,
+        i2p_b32,
+        path,
+    });
 
     loop {
         let now = unix_now();
@@ -159,21 +207,36 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
                         args.overwrite,
                     );
                     let path = epoch_path(&args.output_dir, current_epoch, args.overwrite);
-                    emit(&Event::Rotated { epoch: current_epoch, validity, tor_onion, i2p_b32, path });
+                    emit(&Event::Rotated {
+                        epoch: current_epoch,
+                        validity,
+                        tor_onion,
+                        i2p_b32,
+                        path,
+                    });
                 }
             }
             Ok(Command::SetValidity { seconds }) => {
                 if seconds < 60 {
-                    emit(&Event::Error { msg: "validity must be >= 60 seconds".to_string() });
+                    emit(&Event::Error {
+                        msg: "validity must be >= 60 seconds".to_string(),
+                    });
                     continue;
                 }
                 pending_validity = Some(seconds);
-                emit(&Event::ValidityChanged { new_validity: seconds, effective_epoch: current_epoch + 1 });
+                emit(&Event::ValidityChanged {
+                    new_validity: seconds,
+                    effective_epoch: current_epoch + 1,
+                });
             }
             Ok(Command::Status) => {
                 let now = unix_now();
                 let next_rotation_in = ((current_epoch + 1) * validity).saturating_sub(now);
-                emit(&Event::Status { epoch: current_epoch, validity, next_rotation_in });
+                emit(&Event::Status {
+                    epoch: current_epoch,
+                    validity,
+                    next_rotation_in,
+                });
             }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 emit(&Event::Shutdown);

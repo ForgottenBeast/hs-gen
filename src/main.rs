@@ -87,7 +87,10 @@ fn run_oneshot(args: Args) {
 
     let epoch = current_epoch(args.validity);
     let target = match &args.output_dir {
-        Some(path) => OutputTarget::Directory { path: path.clone(), overwrite: args.overwrite },
+        Some(path) => OutputTarget::Directory {
+            path: path.clone(),
+            overwrite: args.overwrite,
+        },
         None => OutputTarget::Stdout,
     };
 
