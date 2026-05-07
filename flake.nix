@@ -27,6 +27,7 @@
             targets.${target}.stable.rust-std
           ];
         pkgs = nixpkgs.legacyPackages.${system};
+        pkgsCross = nixpkgs.legacyPackages.${system}.pkgsCross.aarch64-multiplatform-musl;
         platform = pkgs.makeRustPlatform {
           cargo = toolchain;
           rustc = toolchain;
@@ -34,24 +35,28 @@
       in
       {
         packages = {
-          default =
+          default = platform.buildRustPackage {
+            pname = "hs-gen";
+            version = "0.1.0";
+            src = ./.;
 
-            platform.buildRustPackage {
-              pname = "package";
-              nativeBuildInputs = with pkgs; [ cmake ];
-              buildInputs = with pkgs; [ stdenv.cc.cc.lib ];
-              version = "0.1.0";
+            cargoLock.lockFile = ./Cargo.lock;
 
-              src = ./.;
+            # Cross-compile to aarch64-unknown-linux-musl
+            CARGO_BUILD_TARGET = target;
+            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER =
+              "${pkgsCross.stdenv.cc}/bin/${pkgsCross.stdenv.cc.targetPrefix}cc";
 
-              cargoLock.lockFile = ./Cargo.lock;
-            };
+            # Musl cross-linker as native build input
+            nativeBuildInputs = [ pkgsCross.stdenv.cc ];
+          };
+
           doc =
             let
               apiDocs = platform.buildRustPackage {
-                name = "package-rustdoc";
+                pname = "hs-gen-rustdoc";
+                version = "0.1.0";
                 dontCheck = true;
-                nativeBuildInputs = with pkgs; [ cmake ];
                 cargoLock.lockFile = ./Cargo.lock;
                 src = ./.;
                 buildPhase = "cargo doc --offline --no-deps";
@@ -61,19 +66,20 @@
                 '';
               };
               guideDocs = pkgs.stdenv.mkDerivation {
-                name = "package-guide";
+                name = "hs-gen-guide";
                 src = ./docs;
                 nativeBuildInputs = [ pkgs.mdbook ];
                 buildPhase = "mdbook build";
                 installPhase = "cp -r book $out";
               };
             in
-            pkgs.runCommand "package-doc" { } ''
+            pkgs.runCommand "hs-gen-doc" { } ''
               mkdir -p $out/guide $out/api
               cp -r ${guideDocs}/. $out/guide/
               cp -r ${apiDocs}/. $out/api/
             '';
         };
+
         devShells = {
           default = pkgs.mkShell {
             buildInputs = [
@@ -86,50 +92,21 @@
               ])
             ]
             ++ (with pkgs; [
-              cmake
               tlaps
               tlaplus18
               mdbook
 
-              # Local dev: secrets vault (OpenBao) + OIDC provider (Dex)
+              # Available for integration with other services; not used by hs-gen itself
               openbao
               dex
             ]);
 
             shellHook = ''
-                            export CARGO_HOME="$PWD/.cargo"
-                            export PATH="$CARGO_HOME/bin:$PATH"
-                            export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib";
-                            mkdir -p .cargo
-                            echo '*' > .cargo/.gitignore
-
-                            # Local dev: secrets vault (OpenBao) + OIDC provider (Dex)
-                            export BAO_ADDR="''${BAO_ADDR:-http://127.0.0.1:8200}"
-                            if [ ! -f .dev/dex.yaml ]; then
-                              mkdir -p .dev
-                              cat > .dev/dex.yaml.tmp <<'DEX_EOF'
-              issuer: http://127.0.0.1:5556/dex
-              storage:
-                type: memory
-              web:
-                http: 127.0.0.1:5556
-              staticClients:
-                - id: dev-client
-                  redirectURIs:
-                    - http://127.0.0.1:8080/callback
-                  name: Dev Client
-                  secret: dev-secret
-              enablePasswordDB: true
-              staticPasswords:
-                - email: admin@example.com
-                  hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
-                  username: admin
-                  userID: 08a8684b-db88-4b73-90a9-3cd1661f5466
-              DEX_EOF
-                              mv .dev/dex.yaml.tmp .dev/dex.yaml
-                            fi
-                            echo "Dev secrets: bao server -dev  (OpenBao on :8200)"
-                            echo "Dev auth:    dex serve .dev/dex.yaml  (Dex OIDC on :5556)"
+              export CARGO_HOME="$PWD/.cargo"
+              export PATH="$CARGO_HOME/bin:$PATH"
+              mkdir -p .cargo
+              echo '*' > .cargo/.gitignore
+              echo "hs-gen dev shell ready"
             '';
           };
         };
