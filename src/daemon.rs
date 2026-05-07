@@ -16,6 +16,7 @@ enum Command {
     SetValidity { seconds: u64 },
     Status,
     Shutdown,
+    ForceRotate,
 }
 
 #[derive(Debug, Serialize)]
@@ -143,9 +144,8 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
                 _ => break,
             }
         }
-        // EOF (or read error): explicitly signal shutdown so the main loop
-        // exits even while the ctrlc handler still holds its sender.
-        let _ = tx_stdin.send(Command::Shutdown);
+        // EOF (or read error): drop tx_stdin and exit the thread.
+        // The daemon keeps running; only SIGTERM/SIGINT shuts it down.
     });
 
     // SIGTERM / Ctrl-C handler
@@ -170,6 +170,9 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
         args.overwrite,
     );
 
+    let mut current_tor_onion = tor_onion;
+    let mut current_i2p_b32 = i2p_b32;
+
     emit(&Event::Started {
         epoch: current_epoch,
         validity,
@@ -178,10 +181,18 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
     emit(&Event::Rotated {
         epoch: current_epoch,
         validity,
-        tor_onion,
-        i2p_b32,
+        tor_onion: current_tor_onion.clone(),
+        i2p_b32: current_i2p_b32.clone(),
         path,
     });
+    write_status_json(
+        &args.output_dir,
+        current_epoch,
+        validity,
+        unix_now(),
+        current_tor_onion.as_deref(),
+        current_i2p_b32.as_deref(),
+    );
 
     loop {
         let now = unix_now();
@@ -206,15 +217,55 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
                         &args.output_dir,
                         args.overwrite,
                     );
+                    current_tor_onion = tor_onion;
+                    current_i2p_b32 = i2p_b32;
                     let path = epoch_path(&args.output_dir, current_epoch, args.overwrite);
                     emit(&Event::Rotated {
                         epoch: current_epoch,
                         validity,
-                        tor_onion,
-                        i2p_b32,
+                        tor_onion: current_tor_onion.clone(),
+                        i2p_b32: current_i2p_b32.clone(),
                         path,
                     });
+                    write_status_json(
+                        &args.output_dir,
+                        current_epoch,
+                        validity,
+                        unix_now(),
+                        current_tor_onion.as_deref(),
+                        current_i2p_b32.as_deref(),
+                    );
                 }
+            }
+            Ok(Command::ForceRotate) => {
+                let new_epoch = current_epoch + 1;
+                let (tor_onion, i2p_b32) = derive_and_write(
+                    &master,
+                    new_epoch,
+                    args.gen_tor,
+                    args.gen_i2p,
+                    &args.output_dir,
+                    args.overwrite,
+                );
+                current_epoch = new_epoch;
+                current_tor_onion = tor_onion;
+                current_i2p_b32 = i2p_b32;
+                let path = epoch_path(&args.output_dir, current_epoch, args.overwrite);
+                emit(&Event::Rotated {
+                    epoch: current_epoch,
+                    validity,
+                    tor_onion: current_tor_onion.clone(),
+                    i2p_b32: current_i2p_b32.clone(),
+                    path,
+                });
+                write_status_json(
+                    &args.output_dir,
+                    current_epoch,
+                    validity,
+                    unix_now(),
+                    current_tor_onion.as_deref(),
+                    current_i2p_b32.as_deref(),
+                );
             }
             Ok(Command::SetValidity { seconds }) => {
                 if seconds < 60 {
@@ -237,6 +288,14 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
                     validity,
                     next_rotation_in,
                 });
+                write_status_json(
+                    &args.output_dir,
+                    current_epoch,
+                    validity,
+                    now,
+                    current_tor_onion.as_deref(),
+                    current_i2p_b32.as_deref(),
+                );
             }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 emit(&Event::Shutdown);
@@ -253,5 +312,39 @@ fn epoch_path(base: &std::path::Path, epoch: u64, overwrite: bool) -> Option<Str
         Some(base.display().to_string())
     } else {
         Some(base.join(epoch.to_string()).display().to_string())
+    }
+}
+
+#[derive(Serialize)]
+struct StatusJson<'a> {
+    epoch: u64,
+    validity: u64,
+    next_rotation_in: u64,
+    tor_onion: Option<&'a str>,
+    i2p_b32: Option<&'a str>,
+}
+
+fn write_status_json(
+    output_dir: &std::path::Path,
+    epoch: u64,
+    validity: u64,
+    now: u64,
+    tor_onion: Option<&str>,
+    i2p_b32: Option<&str>,
+) {
+    let next_rotation_in = ((epoch + 1) * validity).saturating_sub(now);
+    let s = StatusJson {
+        epoch,
+        validity,
+        next_rotation_in,
+        tor_onion,
+        i2p_b32,
+    };
+    if let Ok(json) = serde_json::to_string(&s) {
+        let path = output_dir.join("status.json");
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, json.as_bytes()).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
     }
 }
