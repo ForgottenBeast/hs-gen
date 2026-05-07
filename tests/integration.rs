@@ -13,17 +13,10 @@ fn hs_gen_bin() -> std::path::PathBuf {
     path.join("hs-gen")
 }
 
-fn build_bin() {
-    let status = Command::new("cargo")
-        .args(["build", "--bin", "hs-gen"])
-        .status()
-        .expect("failed to run cargo build");
-    assert!(status.success(), "cargo build failed");
-}
 
 #[test]
 fn test_one_shot_tor_stdout() {
-    build_bin();
+
     let bin = hs_gen_bin();
     let mut child = Command::new(&bin)
         .args(["--tor", "--validity", "3600"])
@@ -52,7 +45,7 @@ fn test_one_shot_tor_stdout() {
 
 #[test]
 fn test_one_shot_i2p_stdout() {
-    build_bin();
+
     let bin = hs_gen_bin();
     let mut child = Command::new(&bin)
         .args(["--i2p", "--validity", "3600"])
@@ -81,7 +74,7 @@ fn test_one_shot_i2p_stdout() {
 
 #[test]
 fn test_determinism_across_invocations() {
-    build_bin();
+
     let bin = hs_gen_bin();
 
     let run = || {
@@ -110,7 +103,7 @@ fn test_determinism_across_invocations() {
 
 #[test]
 fn test_output_dir_no_overwrite() {
-    build_bin();
+
     let bin = hs_gen_bin();
     let dir = TempDir::new().unwrap();
 
@@ -150,7 +143,7 @@ fn test_output_dir_no_overwrite() {
 
 #[test]
 fn test_output_dir_overwrite() {
-    build_bin();
+
     let bin = hs_gen_bin();
     let dir = TempDir::new().unwrap();
 
@@ -195,7 +188,7 @@ fn test_output_dir_overwrite() {
 #[test]
 fn test_default_generates_both() {
     // With no --tor/--i2p flags, both networks should be generated
-    build_bin();
+
     let bin = hs_gen_bin();
     let mut child = Command::new(&bin)
         .args(["--validity", "3600"])
@@ -222,7 +215,7 @@ fn test_default_generates_both() {
 
 #[test]
 fn test_validation_validity_too_small() {
-    build_bin();
+
     let bin = hs_gen_bin();
     let status = Command::new(&bin)
         .args(["--tor", "--validity", "30"])
@@ -236,7 +229,7 @@ fn test_validation_validity_too_small() {
 
 #[test]
 fn test_daemon_initial_rotation_and_shutdown() {
-    build_bin();
+
     let bin = hs_gen_bin();
     let dir = TempDir::new().unwrap();
 
@@ -297,7 +290,7 @@ fn test_daemon_initial_rotation_and_shutdown() {
 
 #[test]
 fn test_daemon_set_validity() {
-    build_bin();
+
     let bin = hs_gen_bin();
     let dir = TempDir::new().unwrap();
 
@@ -340,8 +333,9 @@ fn test_daemon_set_validity() {
 }
 
 #[test]
-fn test_daemon_stdin_eof_triggers_shutdown() {
-    build_bin();
+fn test_daemon_eof_does_not_shutdown() {
+    // EOF on stdin must NOT stop the daemon — the FIFO design keeps the write
+    // end open so the daemon must stay alive until explicit Shutdown or SIGTERM.
     let bin = hs_gen_bin();
     let dir = TempDir::new().unwrap();
 
@@ -359,7 +353,6 @@ fn test_daemon_stdin_eof_triggers_shutdown() {
         .spawn()
         .unwrap();
 
-    // Send password, wait for startup, then close stdin (EOF)
     {
         let stdin = child.stdin.as_mut().unwrap();
         stdin.write_all(b"testpassword\n").unwrap();
@@ -367,11 +360,13 @@ fn test_daemon_stdin_eof_triggers_shutdown() {
     }
     drop(child.stdin.take()); // close stdin → EOF
 
-    let output = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Give the daemon time to react to EOF; it must still be running.
+    std::thread::sleep(Duration::from_millis(300));
     assert!(
-        stdout.contains("\"event\":\"shutdown\""),
-        "missing shutdown on EOF: {stdout}"
+        child.try_wait().unwrap().is_none(),
+        "daemon exited on EOF but should keep running"
     );
-    assert!(output.status.success());
+
+    child.kill().unwrap();
+    child.wait().unwrap();
 }
