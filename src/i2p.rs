@@ -1,8 +1,10 @@
 use data_encoding::BASE32_NOPAD;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519SecretKey};
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 /// I2P type-7 EdDSA-SHA512-Ed25519 destination keys, i2pd-compatible.
 pub struct I2pKeys {
     /// Full .dat file: 391 bytes public + 256 bytes crypto_priv + 32 bytes signing_priv = 679 bytes
