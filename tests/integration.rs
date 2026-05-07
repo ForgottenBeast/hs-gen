@@ -193,23 +193,31 @@ fn test_output_dir_overwrite() {
 }
 
 #[test]
-fn test_validation_no_network() {
+fn test_default_generates_both() {
+    // With no --tor/--i2p flags, both networks should be generated
     build_bin();
     let bin = hs_gen_bin();
-    let status = Command::new(&bin)
+    let mut child = Command::new(&bin)
         .args(["--validity", "3600"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
         .unwrap()
-        .wait_with_output()
-        .unwrap()
-        .status;
-    assert!(
-        !status.success(),
-        "should exit non-zero without --tor or --i2p"
-    );
+        .write_all(b"testpassword")
+        .unwrap();
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "should succeed with no flags");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(".onion"), "output should contain .onion: {stdout}");
+    assert!(stdout.contains(".b32.i2p"), "output should contain .b32.i2p: {stdout}");
 }
 
 #[test]

@@ -39,13 +39,15 @@ struct Args {
 }
 
 fn main() {
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    // Default: generate both networks when neither flag is specified
+    if !args.tor && !args.i2p {
+        args.tor = true;
+        args.i2p = true;
+    }
 
     // Validation
-    if !args.tor && !args.i2p {
-        eprintln!("error: at least one of --tor or --i2p must be specified");
-        std::process::exit(1);
-    }
     if args.validity < 60 {
         eprintln!("error: --validity must be >= 60 seconds");
         std::process::exit(1);

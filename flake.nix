@@ -10,6 +10,7 @@
 
   outputs =
     {
+      self,
       fenix,
       flake-utils,
       nixpkgs,
@@ -18,42 +19,51 @@
       system:
 
       let
-        target = "aarch64-unknown-linux-musl";
-        toolchain =
+        crossTarget = "aarch64-unknown-linux-musl";
+        crossToolchain =
           with fenix.packages.${system};
           combine [
             stable.cargo
             stable.rustc
-            targets.${target}.stable.rust-std
+            targets.${crossTarget}.stable.rust-std
           ];
+        nativeToolchain = fenix.packages.${system}.stable.toolchain;
         pkgs = nixpkgs.legacyPackages.${system};
         pkgsCross = nixpkgs.legacyPackages.${system}.pkgsCross.aarch64-multiplatform-musl;
-        platform = pkgs.makeRustPlatform {
-          cargo = toolchain;
-          rustc = toolchain;
+        nativePlatform = pkgs.makeRustPlatform {
+          cargo = nativeToolchain;
+          rustc = nativeToolchain;
+        };
+        crossPlatform = pkgs.makeRustPlatform {
+          cargo = crossToolchain;
+          rustc = crossToolchain;
+        };
+        commonArgs = {
+          pname = "hs-gen";
+          version = "0.1.0";
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
         };
       in
       {
         packages = {
-          default = platform.buildRustPackage {
-            pname = "hs-gen";
-            version = "0.1.0";
-            src = ./.;
+          # Native build — used by `nix run .#`
+          default = nativePlatform.buildRustPackage commonArgs;
 
-            cargoLock.lockFile = ./Cargo.lock;
-
-            # Cross-compile to aarch64-unknown-linux-musl
-            CARGO_BUILD_TARGET = target;
-            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER =
-              "${pkgsCross.stdenv.cc}/bin/${pkgsCross.stdenv.cc.targetPrefix}cc";
-
-            # Musl cross-linker as native build input
-            nativeBuildInputs = [ pkgsCross.stdenv.cc ];
-          };
+          # Cross-compiled aarch64-unknown-linux-musl static binary
+          cross = crossPlatform.buildRustPackage (
+            commonArgs
+            // {
+              CARGO_BUILD_TARGET = crossTarget;
+              CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER =
+                "${pkgsCross.stdenv.cc}/bin/${pkgsCross.stdenv.cc.targetPrefix}cc";
+              nativeBuildInputs = [ pkgsCross.stdenv.cc ];
+            }
+          );
 
           doc =
             let
-              apiDocs = platform.buildRustPackage {
+              apiDocs = nativePlatform.buildRustPackage {
                 pname = "hs-gen-rustdoc";
                 version = "0.1.0";
                 dontCheck = true;
