@@ -124,8 +124,7 @@ pub fn run(master: MasterKey, args: DaemonArgs) -> io::Result<()> {
     let (tx, rx) = mpsc::channel::<Command>();
 
     // Stdin reader thread: parses JSON commands, sends them on the channel.
-    // On EOF or parse-unrecoverable error, sends Shutdown explicitly so the
-    // main loop exits even if the ctrlc handler is still holding a sender.
+    // On EOF or empty line, drops tx_stdin and exits; the daemon keeps running.
     let tx_stdin = tx.clone();
     thread::spawn(move || {
         let stdin = io::stdin();
