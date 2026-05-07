@@ -84,10 +84,6 @@ fn run_oneshot(args: Args) {
             std::process::exit(1);
         }
     };
-    // Zeroize password bytes
-    for b in password_buf.iter_mut() {
-        *b = 0;
-    }
 
     let epoch = current_epoch(args.validity);
     let target = match &args.output_dir {
@@ -125,7 +121,7 @@ fn run_daemon(args: Args) {
     }
     // Trim trailing newline
     let password_trimmed = password_line.trim_end_matches(['\n', '\r']);
-    let mut password_bytes = Zeroizing::new(password_trimmed.as_bytes().to_vec());
+    let password_bytes = Zeroizing::new(password_trimmed.as_bytes().to_vec());
 
     let master = match derive_master_key(&password_bytes) {
         Ok(m) => m,
@@ -134,10 +130,6 @@ fn run_daemon(args: Args) {
             std::process::exit(1);
         }
     };
-    // Zeroize password
-    for b in password_bytes.iter_mut() {
-        *b = 0;
-    }
     drop(password_bytes);
     drop(password_line);
 

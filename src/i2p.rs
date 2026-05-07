@@ -2,7 +2,7 @@ use data_encoding::BASE32_NOPAD;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha256};
-use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519SecretKey};
+use x25519_dalek::StaticSecret as X25519SecretKey;
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 /// I2P type-7 EdDSA-SHA512-Ed25519 destination keys, i2pd-compatible.
@@ -29,15 +29,12 @@ pub fn generate_i2p_keys(seed: &[u8; 64]) -> I2pKeys {
     // X25519 encryption key from seed[32..64]
     let x25519_seed: [u8; 32] = seed[32..].try_into().unwrap();
     let x25519_secret = X25519SecretKey::from(x25519_seed);
-    let x25519_pubkey = X25519PublicKey::from(&x25519_secret);
 
     // --- Build public destination (391 bytes) ---
     //
-    // [0..256]   crypto public key: X25519 pubkey (32 bytes) zero-padded to 256
-    //            with crypto_type=0 (ElGamal placeholder), we use zeros
+    // [0..256]   crypto public key: zeros (crypto_type=0, ElGamal placeholder)
     // [256..384] signing public key: Ed25519 pubkey (32 bytes) zero-padded to 128
     // [384..391] certificate: 7 bytes
-    let _ = x25519_pubkey; // derived but not placed in crypto field (crypto_type=0)
 
     let mut public_dest = [0u8; 391];
     // crypto public key field: all zeros (ElGamal placeholder, crypto_type=0)

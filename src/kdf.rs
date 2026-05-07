@@ -148,9 +148,7 @@ mod props {
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]
-    fn kdf_is_deterministic(password: Vec<u8>, epoch: u64, validity: u64) -> bool {
-        let validity = validity % (86400 - 60) + 60; // clamp to [60, 86400]
-        let _ = validity; // epoch already provided, validity only used for epoch calc externally
+    fn kdf_is_deterministic(password: Vec<u8>, epoch: u64) -> bool {
         let Ok(master) = derive_master_key(&password) else { return true };
         let s1 = derive_epoch_seed(&master, epoch, NetworkTag::Tor);
         let s2 = derive_epoch_seed(&master, epoch, NetworkTag::Tor);
